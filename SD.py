@@ -10,7 +10,7 @@ from datetime import datetime
 import os
 
 site = wiki.Wiki()
-site.login('DatGuy','redacted')
+site.login('DatBot','redacted')
 useAPI = True
 ctitle = 'Category:Candidates for speedy deletion'
 connections = {}
@@ -71,17 +71,19 @@ def normTS(ts): # normalize a timestamp to the API format
 def logFromAPI(lasttime):
     lasttime = normTS(lasttime)
     params = {'action':'query',
-              'utf8':'1',
-              'list':'categorymembers',
-              'cmtitle':ctitle,
-              'cmprop':'timestamp|title',
-              'cmdir':'older',
-              'cmsort':'timestamp',
-              'cmlimit':'1'
+        'utf8':'1',
+        'formatversion':'2',
+        'prop':'revisions',
+        'generator':'categorymembers',
+        'gcmtitle':ctitle,
+        'gcmprop':'timestamp|title',
+        'gcmdir':'older',
+        'gcmsort':'timestamp',
+        'gcmlimit':'0',
     }
     req = api.APIRequest(site, params)
     res = req.query(False)
-    rows = res['query']['categorymembers']
+    rows = res['query']['pages']
     #if len(rows) > 0:
         #del rows[0] # The API uses >=, so the first row will be the same as the last row of the last set
     ret = []
@@ -90,7 +92,10 @@ def logFromAPI(lasttime):
         entry['ns'] = row['ns']
         p = page.Page(site, row['title'], check = False)
         entry['t'] = p.unprefixedtitle
-        entry['ts'] = row['timestamp']
+        for row in row['revisions']:
+            entry['u'] = row['user']
+            entry['c'] = row['comment']
+            entry['ts'] = row['timestamp']
         ret.append(entry)
     return ret
 
@@ -157,11 +162,13 @@ def main():
         for row in rows:
             ns = row['ns']
             title = row['t']
+            user = row['u']
+            es = row['c']
             timestamp = row['ts']
             titles[(ns,title)]+=1
             if titles[(ns,title)]==1 and not (ns, title) in IRCreported:
                 p = page.Page(site, title, check = False)
-                sendToChannel("CSD tag has been added to %s - https://en.wikipedia.org/wiki/%s" %(p.title.encode('utf8'), p.urltitle))
+                print '%s added a CSD tag to %s with the edit summary "%s" - https://en.wikipedia.org/wiki/%s' %(user, p.title, es, p.urltitle)
                 del titles[(ns,title)]
                 IRCreported[(ns,title)] = 1
                 
