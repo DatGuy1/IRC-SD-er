@@ -12,13 +12,17 @@ import os
 channel = "#wikipedia-en-csd"
 
 site = wiki.Wiki()
-#site.login('DatBot','redacted')
-#useAPI = True
-useAPI = False
+site.login('DatBot','redacted')
+useAPI = True
 ctitle = 'Category:Candidates for speedy deletion'
 connections = {}
 
-CSDcats = {"g1": "nonsense pages", "g10": "attack pages"}
+CSDcats = {
+    "G1": "speedy deletion as nonsense pages",
+    "G5": "speedy deletion as having been created by blocked or banned users",
+    "G6": "uncontroversial speedy deletion",
+    "G10": "speedy deletion as attack pages"
+    }
 
 class timedTracker(dict):
     def __init__(self, args={}, expiry=300):
@@ -73,6 +77,25 @@ def normTS(ts): # normalize a timestamp to the API format
     ts = datetime.datetime.strptime(ts, "%Y%m%d%H%M%S")
     return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+def CSDRows():
+	params = {'action':'query',
+			  'utf8':'1',
+			  'list':'abuselog',
+			  'aflfilter':'29',
+			  'aflprop':'details|user|title',
+			 }
+	req = api.APIRequest(site, params)
+	res = req.query(False)
+	csdrow = res['query']['abuselog']
+	csdret = []
+	for row in csdrow:
+		csdentry = {}
+		entry['es'] = row['summary']
+		entry['us'] = row['user_name']
+		entry['ti'] = row['title']
+		csdret.append(csdentry)
+	return csdret
+
 def logFromAPI(lasttime):
     lasttime = normTS(lasttime)
     params = {'action':'query',
@@ -118,13 +141,11 @@ class CommandBot(SingleServerIRCBot):
         c.join(self.channel)
         connections['command'] = c
         sendToChannel("Bot initialised")
-        return
     def on_pubmsg(self, c, e):
         a = e.arguments[0]
         stripped = e.arguments[0].split("!")
         if len(a) > 1 and a[0] == "!":
             self.do_command(e, stripped[1])
-        return
     def do_command(self, e, cmd):
         nick = e.source.nick
         c = self.connection
@@ -155,16 +176,17 @@ class CommandBot(SingleServerIRCBot):
                 # for row in g1mem:
                     # g1p = page.Page(site, row)
                     # sendToChannel("%s - https://en.wikipedia.org/wiki/%s" %(g10p.title, g10p.urltitle))
-        if cmd in CSDcats:
-            csdName = CSDcats[cmd]
-            csdCat = category.Category(site, "Category:Candidates for speedy deletion as %s" % csdName)
+        cmdu = cmd.upper()
+        if cmdu in CSDcats:
+            csdName = CSDcats[cmdu]
+            csdCat = category.Category(site, "Category:Candidates for %s" % csdName)
             csdMem = csdCat.getAllMembers(titleonly = True, reload = True)
             if not csdMem:
-                sendToChannel("There are no candidates for speedy deletion as %s." % csdName)
+                sendToChannel("There are no candidates for %s." % csdName)
             else:
                 for row in csdMem:
                     csdPage = page.Page(site, row)
-                    sendToChannel("%s - https://en.wikipedia.org/wiki/%s" %(csdPage.title, csdPage.urltitle))
+                    sendToChannel("\x0302%s: %s - https://en.wikipedia.org/wiki/%s" %(cmdu, csdPage.title, csdPage.urltitle))
         #:END
 def sendToChannel(msg):
     connections['command'].privmsg(channel, msg)
@@ -179,11 +201,11 @@ class BotRunnerThread(threading.Thread):
 def getStart():
     if useAPI:
         params = {'action':'query',
-            'list':'categorymembers',
+            		'list':'categorymembers',
                     'utf8':'1',
                     'cmtitle':ctitle,
-            'cmprop':'ids|timestamp',
-            'cmlimit':'1',
+            		'cmprop':'ids|timestamp',
+            		'cmlimit':'1',
         }
         req = api.APIRequest(site, params)
         res = req.query(False)
@@ -194,7 +216,7 @@ def getStart():
     return (lasttime)
 def main():
     global connections
-    #channel = "#wikipedia-en-csd"
+    channel = "#wikipedia-en-csd"
     Cserver = "irc.freenode.net"
     nickname = "DatBotCSD"
     #cbot = CommandBot(Cchannel, nickname, Cserver)
@@ -202,8 +224,9 @@ def main():
     cThread = BotRunnerThread(cbot)
     cThread.daemon = True
     cThread.start()
-    IRCreported = timedTracker(expiry=60)
+    IRCreported = timedTracker(expiry=172800)
     titles = timedTracker()
+	csdtitles = timedTracker()
     while len(connections) != 1:
         time.sleep(2)
         print("In while")
@@ -213,18 +236,28 @@ def main():
         lasttime = getStart()
         if useAPI:
             rows = logFromAPI(lasttime)
+			csdrow = CSDRows()
         for row in rows:
             ns = row['ns']
             title = row['t']
             user = row['u']
-            es = row['c']
+            editsum = row['c']
             timestamp = row['ts']
             titles[(ns,title)]+=1
             if titles[(ns,title)]==1 and not (ns, title) in IRCreported:
                 p = page.Page(site, title, check = False)
-                print '%s added a CSD tag to %s with the edit summary "%s" - https://en.wikipedia.org/wiki/%s' %(user, p.title, es, p.urltitle)
+                sendToChannel('\x0314%s added a CSD tag to %s with the edit summary "%s" - https://en.wikipedia.org/wiki/%s' %(user, p.title, editsum, p.urltitle))
                 del titles[(ns,title)]
                 IRCreported[(ns,title)] = 1
+			for row in csdrow:
+				comment = row['es']
+				csdtitle = row['ti']
+				username = row['us']
+				csdtitles[csdtitle] += 1
+				if csdtitles[csdtitle] == 1:
+					csdp = page.Page(site, csdtitle, check = False)
+					sendToChannel('\x0304%s removed a CSD tag from %s with the edit summary "%s" - https://en.wikipedia.org/wiki/%s' %(username, csdp.title, comment, csdp.urltitle))
+					del titles[title]
                 
 if __name__ == "__main__":
     main()
