@@ -114,7 +114,43 @@ class CommandBot(SingleServerIRCBot):
         connections['command'] = c
         sendToChannel("Bot initialised")
         return
-	    
+	def on_pubmsg(self, c, e):
+		a = e.arguments[0]
+		stripped = e.arguments[0].split("!")
+		if len(a) > 1 and a[0] == "!":
+			self.do_command(e, stripped[1])
+		return
+	def do_command(self, e, cmd):
+		nick = e.source.nick
+		c = self.connection
+		if cmd == "quiet":
+			sendToChannel("/cs op #wikipedia-en-csd DatBotCSD")
+			time.sleep(0.25)
+			sendToChannel("/mode +q DatBotCSD!*@*")
+			time.sleep(0.25)
+			sendToChannel("/cs deop #wikipedia-en-csd DatBotCSD")
+			time.sleep(0.25)
+			sendToChannel("/cs devoice #wikipedia-en-csd DatBotCSD")
+		elif cmd == "unquiet":
+			sendToChannel("/cs op #wikipedia-en-csd DatBot")
+			time.sleep(0.25)
+			sendToChannel("/mode -q DatBotCSD!*@*")
+			time.sleep(0.25)
+			sendToChannel("/cs deop #wikipedia-en-csd DatBotCSD")
+			time.sleep(0.25)
+			sendToChannel("/cs voice #wikipedia-en-csd DatBotCSD")
+		#Use this format for other categories
+		#BEGIN:
+		elif cmd == "g1":
+			g1cat = category.Category(site, "Category:Candidates for speedy deletion as nonsense pages")
+			g1mem = g1cat.getAllMembets(titleonly = True, reload = True)
+			if g1mem == []:
+				sendToChannel("There are no candidates for speedy deletion as nonsense pages")
+			else:
+				for row in g1mem:
+					g1p = page.Page(site, row)
+					sendToChannel("%s - https://en.wikipedia.org/wiki/%s" %(g10p.title, g10p.urltitle))
+		#:END
 def sendToChannel(msg):
     connections['command'].privmsg("#wikipedia-en-csd", msg)
 	
