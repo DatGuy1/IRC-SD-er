@@ -1,5 +1,5 @@
 import irc
-import irc.bot
+#import irc.bot
 from irc.bot import SingleServerIRCBot
 from wikitools import *
 import thread
@@ -9,11 +9,20 @@ import time
 from datetime import datetime
 import os
 
+channel = "#wikipedia-en-csd"
+
 site = wiki.Wiki()
 site.login('DatBot','redacted')
 useAPI = True
 ctitle = 'Category:Candidates for speedy deletion'
 connections = {}
+
+CSDcats = {
+    "G1": "speedy deletion as nonsense pages",
+    "G5": "speedy deletion as having been created by blocked or banned users",
+    "G6": "uncontroversial speedy deletion",
+    "G10": "speedy deletion as attack pages"
+    }
 
 class timedTracker(dict):
     def __init__(self, args={}, expiry=300):
@@ -68,6 +77,25 @@ def normTS(ts): # normalize a timestamp to the API format
     ts = datetime.datetime.strptime(ts, "%Y%m%d%H%M%S")
     return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+def CSDRows():
+	params = {'action':'query',
+			  'utf8':'1',
+			  'list':'abuselog',
+			  'aflfilter':'29',
+			  'aflprop':'details|user|title',
+			 }
+	req = api.APIRequest(site, params)
+	res = req.query(False)
+	csdrow = res['query']['abuselog']
+	csdret = []
+	for row in csdrow:
+		csdentry = {}
+		entry['es'] = row['summary']
+		entry['us'] = row['user_name']
+		entry['ti'] = row['title']
+		csdret.append(csdentry)
+	return csdret
+
 def logFromAPI(lasttime):
     lasttime = normTS(lasttime)
     params = {'action':'query',
@@ -113,100 +141,123 @@ class CommandBot(SingleServerIRCBot):
         c.join(self.channel)
         connections['command'] = c
         sendToChannel("Bot initialised")
-        return
-	def on_pubmsg(self, c, e):
-		a = e.arguments[0]
-		stripped = e.arguments[0].split("!")
-		if len(a) > 1 and a[0] == "!":
-			self.do_command(e, stripped[1])
-		return
-	def do_command(self, e, cmd):
-		nick = e.source.nick
-		c = self.connection
-		if cmd == "quiet":
-			sendToChannel("/cs op #wikipedia-en-csd DatBotCSD")
-			time.sleep(0.25)
-			sendToChannel("/mode +q DatBotCSD!*@*")
-			time.sleep(0.25)
-			sendToChannel("/cs deop #wikipedia-en-csd DatBotCSD")
-			time.sleep(0.25)
-			sendToChannel("/cs devoice #wikipedia-en-csd DatBotCSD")
-		elif cmd == "unquiet":
-			sendToChannel("/cs op #wikipedia-en-csd DatBot")
-			time.sleep(0.25)
-			sendToChannel("/mode -q DatBotCSD!*@*")
-			time.sleep(0.25)
-			sendToChannel("/cs deop #wikipedia-en-csd DatBotCSD")
-			time.sleep(0.25)
-			sendToChannel("/cs voice #wikipedia-en-csd DatBotCSD")
-		#Use this format for other categories
-		#BEGIN:
-		elif cmd == "g1":
-			g1cat = category.Category(site, "Category:Candidates for speedy deletion as nonsense pages")
-			g1mem = g1cat.getAllMembets(titleonly = True, reload = True)
-			if g1mem == []:
-				sendToChannel("There are no candidates for speedy deletion as nonsense pages")
-			else:
-				for row in g1mem:
-					g1p = page.Page(site, row)
-					sendToChannel("%s - https://en.wikipedia.org/wiki/%s" %(g10p.title, g10p.urltitle))
-		#:END
+    def on_pubmsg(self, c, e):
+        a = e.arguments[0]
+        stripped = e.arguments[0].split("!")
+        if len(a) > 1 and a[0] == "!":
+            self.do_command(e, stripped[1])
+    def do_command(self, e, cmd):
+        nick = e.source.nick
+        c = self.connection
+        if cmd == "quiet":
+            sendToChannel("/cs op #wikipedia-en-csd DatBotCSD")
+            time.sleep(0.25)
+            sendToChannel("/mode +q DatBotCSD!*@*")
+            time.sleep(0.25)
+            sendToChannel("/cs deop #wikipedia-en-csd DatBotCSD")
+            time.sleep(0.25)
+            sendToChannel("/cs devoice #wikipedia-en-csd DatBotCSD")
+        elif cmd == "unquiet":
+            sendToChannel("/cs op #wikipedia-en-csd DatBot")
+            time.sleep(0.25)
+            sendToChannel("/mode -q DatBotCSD!*@*")
+            time.sleep(0.25)
+            sendToChannel("/cs deop #wikipedia-en-csd DatBotCSD")
+            time.sleep(0.25)
+            sendToChannel("/cs voice #wikipedia-en-csd DatBotCSD")
+        #Use this format for other categories
+        #BEGIN:
+        # elif cmd == "g1":
+            # g1cat = category.Category(site, "Category:Candidates for speedy deletion as nonsense pages")
+            # g1mem = g1cat.getAllMembets(titleonly = True, reload = True)
+            # if g1mem == []:
+                # sendToChannel("There are no candidates for speedy deletion as nonsense pages")
+            # else:
+                # for row in g1mem:
+                    # g1p = page.Page(site, row)
+                    # sendToChannel("%s - https://en.wikipedia.org/wiki/%s" %(g10p.title, g10p.urltitle))
+        cmdu = cmd.upper()
+        if cmdu in CSDcats:
+            csdName = CSDcats[cmdu]
+            csdCat = category.Category(site, "Category:Candidates for %s" % csdName)
+            csdMem = csdCat.getAllMembers(titleonly = True, reload = True)
+            if not csdMem:
+                sendToChannel("There are no candidates for %s." % csdName)
+            else:
+                for row in csdMem:
+                    csdPage = page.Page(site, row)
+                    sendToChannel("\x0302%s: %s - https://en.wikipedia.org/wiki/%s" %(cmdu, csdPage.title, csdPage.urltitle))
+        #:END
 def sendToChannel(msg):
-    connections['command'].privmsg("#wikipedia-en-csd", msg)
-	
+    connections['command'].privmsg(channel, msg)
+    
 class BotRunnerThread(threading.Thread):
     def __init__(self, bot):
         threading.Thread.__init__(self)
         self.bot = bot
     def run(self):
         self.bot.start()
-		
+        
 def getStart():
     if useAPI:
-	    params = {'action':'query',
-		    'list':'categorymembers',
+        params = {'action':'query',
+            		'list':'categorymembers',
                     'utf8':'1',
                     'cmtitle':ctitle,
-		    'cmprop':'ids|timestamp',
-		    'cmlimit':'1',
-	    }
-	    req = api.APIRequest(site, params)
-	    res = req.query(False)
-	    row = res['query']['categorymembers'][0]
-	    lasttime = row['timestamp']
+            		'cmprop':'ids|timestamp',
+            		'cmlimit':'1',
+        }
+        req = api.APIRequest(site, params)
+        res = req.query(False)
+        row = res['query']['categorymembers'][0]
+        lasttime = row['timestamp']
+    else:
+        lasttime = 0
     return (lasttime)
 def main():
     global connections
-    Cchannel = "#wikipedia-en-csd"
     channel = "#wikipedia-en-csd"
     Cserver = "irc.freenode.net"
     nickname = "DatBotCSD"
-    cbot = CommandBot(Cchannel, nickname, Cserver)
+    #cbot = CommandBot(Cchannel, nickname, Cserver)
+    cbot = CommandBot(channel, nickname, Cserver)
     cThread = BotRunnerThread(cbot)
     cThread.daemon = True
     cThread.start()
-    IRCreported = timedTracker(expiry=60)
+    IRCreported = timedTracker(expiry=172800)
     titles = timedTracker()
+	csdtitles = timedTracker()
     while len(connections) != 1:
         time.sleep(2)
         print("In while")
     time.sleep(5)
+    rows = []
     while True:
-        (lasttime) = getStart()
+        lasttime = getStart()
         if useAPI:
             rows = logFromAPI(lasttime)
+			csdrow = CSDRows()
         for row in rows:
             ns = row['ns']
             title = row['t']
             user = row['u']
-            es = row['c']
+            editsum = row['c']
             timestamp = row['ts']
             titles[(ns,title)]+=1
             if titles[(ns,title)]==1 and not (ns, title) in IRCreported:
                 p = page.Page(site, title, check = False)
-                print '%s added a CSD tag to %s with the edit summary "%s" - https://en.wikipedia.org/wiki/%s' %(user, p.title, es, p.urltitle)
+                sendToChannel('\x0314%s added a CSD tag to %s with the edit summary "%s" - https://en.wikipedia.org/wiki/%s' %(user, p.title, editsum, p.urltitle))
                 del titles[(ns,title)]
                 IRCreported[(ns,title)] = 1
+			for row in csdrow:
+				comment = row['es']
+				csdtitle = row['ti']
+				username = row['us']
+				csdtitles[csdtitle] += 1
+				if csdtitles[csdtitle] == 1:
+					csdp = page.Page(site, csdtitle, check = False)
+					sendToChannel('\x0304%s removed a CSD tag from %s with the edit summary "%s" - https://en.wikipedia.org/wiki/%s' %(username, csdp.title, comment, csdp.urltitle))
+					del titles[title]
                 
 if __name__ == "__main__":
-	main()
+    main()
